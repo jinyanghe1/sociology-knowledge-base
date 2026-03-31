@@ -1,0 +1,33 @@
+{
+  "document": {
+    "id": "string",
+    "filename": "string",
+    "file_type": "pdf | markdown | text",
+    "upload_time": "datetime",
+    "status": "pending | processing | ready | error",
+    "chunk_count": "number"
+  },
+  "chunk": {
+    "id": "string",
+    "document_id": "string",
+    "content": "string",
+    "chunk_index": "number",
+    "embedding": "float[]"
+  },
+  "query": {
+    "id": "string",
+    "question": "string",
+    "mode": "rag | agentic",
+    "top_k": "number",
+    "answer": "string",
+    "sources": ["chunk_id"]
+  },
+  "agent_message": {
+    "id": "string",
+    "agent": "string",
+    "role": "string",
+    "content": "string",
+    "timestamp": "datetime",
+    "parent_id": "string | null"
+  }
+}

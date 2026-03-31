@@ -1,0 +1,38 @@
+# SNAPSHOT - 已完成模块摘要
+
+## 已完成
+- 项目结构创建
+- .agentstalk 目录初始化
+- requirements.txt
+- backend/models/schemas.py (Pydantic models)
+- backend/vector_store/chroma_manager.py (ChromaDB + get方法)
+- backend/core_logic/parser.py (PDF/MD/TXT)
+- backend/core_logic/store.py (共享 document_store)
+- backend/core_logic/agentic_notes.py (Agentic Notes: summarize/compare/outline)
+- backend/api/documents.py (/api/documents 路由)
+- backend/api/query.py (/api/query 路由)
+- backend/api/agents.py (/api/agents/task 路由)
+- backend/main.py (FastAPI 入口)
+- backend/core_logic/agent.py (LangGraph RAG Workflow)
+- frontend/app.py (Streamlit 入口)
+- frontend/pages/documents.py (文档管理)
+- frontend/pages/chat.py (RAG 问答 UI)
+
+## 已完成 (功能增强)
+- scripts/start.sh (一键启动前后端)
+- scripts/stop.sh (一键停止)
+- scripts/status.sh (状态检查)
+- frontend/app.py (前端 Shutdown 按钮)
+- backend/core_logic/parser.py (PDF/DOC/DOCX/PPT/PPTX/MD/TXT)
+- backend/vector_store/chroma_manager.py (HNSW索引/缓存/批量)
+- backend/api/documents.py (批量上传API)
+- backend/main.py (缓存集成/统计API)
+
+## 进行中
+- None
+
+## 待验证
+- 启动后端测试
+- 启动前端测试
+- RAG 召回测试
+- Agentic Notes 思考流测试
