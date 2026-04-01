@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "knowledge-base": {
+      "command": "python",
+      "args": [
+        "-u",
+        "/Users/hejinyang/Desktop/社会学考研资料/mcp_server/server.py"
+      ],
+      "env": {
+        "PYTHONPATH": "/Users/hejinyang/Desktop/社会学考研资料"
+      }
+    }
+  }
+}
