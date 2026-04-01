@@ -1,12 +1,14 @@
 # SNAPSHOT - 已完成模块摘要
 
-## 已完成
-- 项目结构创建
-- .agentstalk 目录初始化
-- requirements.txt
+## MCP 架构研究 (新方向)
+- `.agentstalk/RESEARCH.md` - MCP 架构可行性分析
+- 结论: MCP 方案可行，可替代 FastAPI + Streamlit
+
+## 旧架构 (FastAPI 方案 - 代码审查完成)
+### 已完成模块
 - backend/models/schemas.py (Pydantic models)
 - backend/vector_store/chroma_manager.py (ChromaDB + get方法)
-- backend/core_logic/parser.py (PDF/MD/TXT)
+- backend/core_logic/parser.py (PDF/DOC/DOCX/PPT/PPTX/MD/TXT)
 - backend/core_logic/store.py (共享 document_store)
 - backend/core_logic/agentic_notes.py (Agentic Notes: summarize/compare/outline)
 - backend/api/documents.py (/api/documents 路由)
@@ -14,25 +16,146 @@
 - backend/api/agents.py (/api/agents/task 路由)
 - backend/main.py (FastAPI 入口)
 - backend/core_logic/agent.py (LangGraph RAG Workflow)
+- backend/core_logic/embedding.py (Ollama + hash fallback)
 - frontend/app.py (Streamlit 入口)
 - frontend/pages/documents.py (文档管理)
 - frontend/pages/chat.py (RAG 问答 UI)
+- scripts/start.sh, stop.sh, status.sh
 
-## 已完成 (功能增强)
-- scripts/start.sh (一键启动前后端)
-- scripts/stop.sh (一键停止)
-- scripts/status.sh (状态检查)
-- frontend/app.py (前端 Shutdown 按钮)
-- backend/core_logic/parser.py (PDF/DOC/DOCX/PPT/PPTX/MD/TXT)
-- backend/vector_store/chroma_manager.py (HNSW索引/缓存/批量)
-- backend/api/documents.py (批量上传API)
-- backend/main.py (缓存集成/统计API)
+### 代码审查结果 (2026-03-31)
+- ✅ 静态语法检查通过 (所有 Python 文件)
+- ✅ 空目录 backend/app/ 已清理
+- ✅ httpx[socks] 依赖正确
+- ✅ agent.py: Source 引用正确，langgraph 使用 try/except 导入
+- ✅ embedding.py: hash-based fallback 已实现 (无 Ollama 可用)
+- ✅ frontend/app.py: API URL 路径正确 (/api/*)
+- ✅ main.py: agents_router 已正确注册，无重复端点
+- ✅ 所有标记为 Copilot-Agent 的 Bug 实际上已修复
 
-## 进行中
-- None
+### Bug 修复状态
+- [x] requirements.txt 依赖冲突
+- [x] agent.py SourceChunk → Source 引用错误 (实际无此错误)
+- [x] ollama/chromadb/langgraph 硬导入 (已使用延迟导入)
+- [x] 前端 API URL 路径不匹配 (路径正确)
+- [x] agents router 未注册 + main.py 重复端点 (已注册)
+- [x] embedding 回退实现 (hash-based 已实现)
+- [x] 批量上传 Bad Gateway (递归调用已修复)
 
-## 待验证
-- 启动后端测试
-- 启动前端测试
-- RAG 召回测试
-- Agentic Notes 思考流测试
+## 新架构 (MCP 方案 - Phase M1 完成)
+### 已实现
+- mcp_server/__init__.py - 包初始化
+- mcp_server/server.py - FastMCP Server (8 个 tools)
+  - ✅ rag_search(query, top_k) - 语义检索
+  - ✅ index_document(path) - 单文档索引
+  - ✅ index_folder(path, recursive) - 批量目录索引
+  - ✅ list_documents() - 文档列表
+  - ✅ get_document_info(id) - 文档详情
+  - ✅ get_document_chunks(id) - 文档分块内容
+  - ✅ delete_document(id) - 文档删除
+  - ✅ get_stats() - 知识库统计
+- mcp_data/documents.json - JSON 持久化元数据 (重启不丢失)
+- mcp_data/uploads/ - 文档副本存储
+- mcp_data/chroma/ - 向量索引存储
+
+### 已验证
+- requirements-mcp.txt - 精简依赖
+- CLAUDE_DESKTOP_CONFIG.md - 完整配置指南 (含 8 个工具说明)
+- E2E 测试通过: index_document → rag_search → get_document_info → get_document_chunks → delete_document
+- index_folder 批量索引测试通过 (自动跳过不支持格式)
+- JSON 持久化测试通过
+
+### 使用方法
+1. 安装依赖: `pip install -r requirements-mcp.txt`
+2. 配置 Ollama (详见 OLLAMA_SETUP.md)
+   ```bash
+   ollama serve
+   ollama pull nomic-embed-text
+   ```
+3. 配置 Claude Desktop (详见 CLAUDE_DESKTOP_CONFIG.md)
+4. 在 Claude 中调用 tools 进行 RAG 检索
+
+### Workspace（作用域限定）
+- `index_folder("/path/to/文件夹/")` → 自动使用文件夹名作为 workspace
+- `rag_search("查询", workspace="文件夹名")` → 限定搜索范围
+- `list_workspaces()` → 查看所有工作区
+
+### Ollama 配置
+- 生产环境 **必须** 安装 Ollama
+- 自动检测，无需额外代码配置
+- 无 Ollama 时回退到 hash-based（仅开发测试）
+
+## 核心技术栈对比
+| 维度 | FastAPI 方案 | MCP 方案 |
+|------|-------------|---------|
+| 部署 | FastAPI + Streamlit + 多进程 | 单一 MCP Server |
+| 依赖 | 20+ 包 (FastAPI/Streamlit/Ollama/LangGraph) | 5-8 包 (mcp + ChromaDB + parser) |
+| 客户端 | 自建 Streamlit UI | Claude Desktop / Cursor / kimi |
+| 推理能力 | 本地 Ollama (受限) | 云端 Claude/kimi (强大) |
+| 维护复杂度 | 高 | 低 |
+
+## 建议
+基于 RESEARCH.md 分析，推荐废弃 FastAPI 方案，迁移至 MCP Server 架构：
+1. 保留 `backend/vector_store/` 和 `backend/core_logic/parser.py`
+2. 新建 `mcp_server/` 目录实现 MCP Server
+3. 使用 Claude Desktop 作为前端交互界面
+
+---
+
+## 深度架构审查 (2026-04-01)
+
+### 审查概览
+- **审查类型**: 多 Agent 协作深度代码审查
+- **审查团队**: 5 个专业 SubAgent
+- **审查范围**: Backend API / VectorStore / Parser / MCP Server / Frontend
+- **审查原则**: 只审查不修改，生产代码零变更
+
+### 问题统计
+| 级别 | 数量 | 说明 |
+|------|------|------|
+| 🔴 CRITICAL | 10 | 可能导致数据丢失或系统崩溃 |
+| 🟠 HIGH | 15 | 潜在的性能或安全问题 |
+| 🟡 MEDIUM | 23 | 代码质量问题 |
+| 🟢 LOW | 15+ | 轻微问题或建议 |
+
+### 关键风险点
+1. **线程安全** - `_doc_meta` / `EmbeddingCache` / `fallback_store` 无锁保护
+2. **数据一致性** - 索引/删除操作非原子，无回滚机制
+3. **内存安全** - 大文件全量读取可能导致 OOM
+4. **安全漏洞** - 路径遍历、无文件大小限制
+
+### 详细审查报告
+- [REVIEW_BACKEND.md](./REVIEW_BACKEND.md) - 后端 API 审查
+- [REVIEW_VECTORSTORE.md](./REVIEW_VECTORSTORE.md) - 向量存储审查
+- [REVIEW_PARSER.md](./REVIEW_PARSER.md) - 文档解析审查
+- [REVIEW_MCP.md](./REVIEW_MCP.md) - MCP Server 审查
+- [REVIEW_FRONTEND.md](./REVIEW_FRONTEND.md) - 前端审查
+- [ARCHITECTURE_REVIEW.md](./ARCHITECTURE_REVIEW.md) - 综合架构审查
+
+### 测试代码
+- `tests/test_security.py` - 安全漏洞测试
+- `tests/test_concurrency.py` - 并发问题测试
+- `tests/test_parser_edge_cases.py` - 解析器边界测试
+- `tests/test_mcp_transactions.py` - MCP 事务测试
+- `tests/run_all_tests.py` - 测试运行脚本
+
+### 优先修复建议
+**立即修复** (生产环境阻塞):
+1. 添加 `_doc_meta` 全局锁保护
+2. 实现 `_save_meta()` 原子写入
+3. 修复路径遍历漏洞
+4. 添加文件大小限制
+
+**短期优化** (2周内):
+5. 重构 `EmbeddingCache` 使用 `OrderedDict`
+6. 实现事务回滚机制
+7. 添加编码自动检测
+8. 修正 `rag_search` 的 score 语义
+
+**中期重构** (1个月内):
+9. 用 SQLite 替代 JSON 持久化
+10. 实现大文件流式处理
+11. 添加健康检查工具
+12. 完善降级策略
+
+### 架构师结论
+项目 MCP Server 架构方向正确，功能完整，但在**生产环境部署前必须解决关键的安全和并发问题**。

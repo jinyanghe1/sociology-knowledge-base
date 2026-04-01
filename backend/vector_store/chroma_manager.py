@@ -15,8 +15,12 @@ import time
 from functools import lru_cache
 from typing import Dict, List, Optional, Any, Callable
 
-import chromadb
-from chromadb.config import Settings
+try:
+    import chromadb
+    from chromadb.config import Settings
+    _CHROMA_AVAILABLE = True
+except ImportError:
+    _CHROMA_AVAILABLE = False
 
 
 class ChromaManager:
@@ -50,24 +54,34 @@ class ChromaManager:
         self.persist_directory = persist_directory
         os.makedirs(persist_directory, exist_ok=True)
         
-        # Initialize client with optimized settings
-        self.client = chromadb.PersistentClient(
-            path=persist_directory,
-            settings=Settings(
-                anonymized_telemetry=False,
-                allow_reset=True,
+        if _CHROMA_AVAILABLE:
+            self.client = chromadb.PersistentClient(
+                path=persist_directory,
+                settings=Settings(
+                    anonymized_telemetry=False,
+                    allow_reset=True,
+                )
             )
-        )
+        else:
+            import logging
+            logging.getLogger(__name__).warning(
+                "chromadb not installed — using in-memory fallback vector store"
+            )
+            self.client = None
         
         self.collection_name = "documents"
         self._collection = None
         self._cache = {}  # Simple in-memory cache
         self._cache_lock = threading.Lock()
+        self._fallback_store = {"ids": [], "embeddings": [], "documents": [], "metadatas": []}
+        self._fallback_lock = threading.Lock()
         self._initialized = True
     
     @property
     def collection(self):
         """Get or create collection with HNSW index optimization."""
+        if not _CHROMA_AVAILABLE or self.client is None:
+            return None
         if self._collection is None:
             self._collection = self.client.get_or_create_collection(
                 name=self.collection_name,
@@ -89,18 +103,10 @@ class ChromaManager:
         metadatas: Optional[List[Dict]] = None,
         batch_size: Optional[int] = None
     ) -> Dict[str, Any]:
-        """Add documents with batch processing and retry logic.
+        """Add documents with batch processing and retry logic."""
+        if self.collection is None:
+            return self._fallback_add(ids, embeddings, documents, metadatas)
         
-        Args:
-            ids: Document IDs
-            embeddings: Document embeddings
-            documents: Document texts
-            metadatas: Optional metadata
-            batch_size: Batch size (default: self.BATCH_SIZE)
-            
-        Returns:
-            Dict with 'added_count' and 'errors'
-        """
         batch_size = batch_size or self.BATCH_SIZE
         total = len(ids)
         added_count = 0
@@ -147,17 +153,9 @@ class ChromaManager:
         where: Optional[Dict] = None,
         use_cache: bool = True
     ) -> Dict[str, Any]:
-        """Query with caching and optimized HNSW search.
-        
-        Args:
-            query_embedding: Query vector
-            n_results: Number of results
-            where: Filter condition
-            use_cache: Whether to use query cache
-            
-        Returns:
-            Query results
-        """
+        """Query with caching and optimized HNSW search."""
+        if self.collection is None:
+            return self._fallback_query(query_embedding, n_results, where)
         # Generate cache key
         cache_key = None
         if use_cache:
@@ -220,6 +218,8 @@ class ChromaManager:
     
     def get_document_chunks(self, document_id: str) -> List[Dict]:
         """Get all chunks for a document."""
+        if self.collection is None:
+            return self._fallback_get_doc_chunks(document_id)
         results = self.collection.get(
             where={"document_id": document_id},
             include=["documents", "metadatas"]
@@ -243,6 +243,8 @@ class ChromaManager:
         offset: Optional[int] = None
     ) -> Dict[str, Any]:
         """Get chunks by IDs or where filter."""
+        if self.collection is None:
+            return self._fallback_get(ids, where, limit)
         kwargs = {}
         if ids:
             kwargs["ids"] = ids
@@ -257,20 +259,28 @@ class ChromaManager:
     
     def delete_by_document_id(self, document_id: str) -> None:
         """Delete all chunks for a document."""
+        if self.collection is None:
+            self._fallback_delete_by_doc(document_id)
+            return
         self.collection.delete(where={"document_id": document_id})
         self._clear_cache()
     
     def delete_collection(self) -> None:
         """Delete entire collection."""
-        try:
-            self.client.delete_collection(name=self.collection_name)
-        except Exception:
-            pass  # Collection might not exist
+        if self.collection is not None:
+            try:
+                self.client.delete_collection(name=self.collection_name)
+            except Exception:
+                pass
+        else:
+            self._fallback_store = {"ids": [], "embeddings": [], "documents": [], "metadatas": []}
         self._collection = None
         self._clear_cache()
     
     def count(self) -> int:
         """Get total document count."""
+        if self.collection is None:
+            return len(self._fallback_store["ids"])
         return self.collection.count()
     
     def get_stats(self) -> Dict[str, Any]:
@@ -288,9 +298,102 @@ class ChromaManager:
     
     def optimize(self):
         """Run collection optimization (force index rebuild)."""
-        # ChromaDB automatically manages the HNSW index
-        # This method is a placeholder for future optimizations
         pass
+
+    # ---- In-memory fallback methods (when chromadb is not installed) ----
+
+    def _fallback_add(self, ids, embeddings, documents, metadatas):
+        """In-memory add for fallback mode."""
+        with self._fallback_lock:
+            store = self._fallback_store
+            for i, doc_id in enumerate(ids):
+                if doc_id not in store["ids"]:
+                    store["ids"].append(doc_id)
+                    store["embeddings"].append(embeddings[i])
+                    store["documents"].append(documents[i])
+                    store["metadatas"].append(metadatas[i] if metadatas else {})
+        return {"added_count": len(ids), "total": len(ids), "errors": []}
+
+    def _fallback_query(self, query_embedding, n_results, where):
+        """Cosine-similarity search over in-memory store."""
+        import numpy as _np
+        with self._fallback_lock:
+            store = self._fallback_store
+            if not store["ids"]:
+                return {"ids": [[]], "documents": [[]], "metadatas": [[]], "distances": [[]]}
+
+            q = _np.array(query_embedding, dtype=_np.float64)
+            q_norm = _np.linalg.norm(q)
+            if q_norm == 0:
+                q_norm = 1.0
+
+            scored = []
+            for i, emb in enumerate(store["embeddings"]):
+                meta = store["metadatas"][i]
+                if where:
+                    match = all(meta.get(k) == v for k, v in where.items())
+                    if not match:
+                        continue
+                e = _np.array(emb, dtype=_np.float64)
+                e_norm = _np.linalg.norm(e)
+                if e_norm == 0:
+                    e_norm = 1.0
+                dist = 1.0 - float(_np.dot(q, e) / (q_norm * e_norm))
+                scored.append((i, dist))
+
+            scored.sort(key=lambda x: x[1])
+            top = scored[:n_results]
+
+            return {
+                "ids": [[store["ids"][i] for i, _ in top]],
+                "documents": [[store["documents"][i] for i, _ in top]],
+                "metadatas": [[store["metadatas"][i] for i, _ in top]],
+                "distances": [[d for _, d in top]],
+            }
+
+    def _fallback_get_doc_chunks(self, document_id):
+        """Get chunks for a document from fallback store."""
+        with self._fallback_lock:
+            store = self._fallback_store
+            chunks = []
+            for i, meta in enumerate(store["metadatas"]):
+                if meta.get("document_id") == document_id:
+                    chunks.append({
+                        "id": store["ids"][i],
+                        "content": store["documents"][i],
+                        "metadata": meta,
+                    })
+        return chunks
+
+    def _fallback_get(self, ids, where, limit):
+        """Get by IDs or where filter from fallback store."""
+        with self._fallback_lock:
+            store = self._fallback_store
+            result_ids, result_docs, result_metas = [], [], []
+            for i, sid in enumerate(store["ids"]):
+                if ids and sid not in ids:
+                    continue
+                meta = store["metadatas"][i]
+                if where and not all(meta.get(k) == v for k, v in where.items()):
+                    continue
+                result_ids.append(sid)
+                result_docs.append(store["documents"][i])
+                result_metas.append(meta)
+                if limit and len(result_ids) >= limit:
+                    break
+        return {"ids": result_ids, "documents": result_docs, "metadatas": result_metas}
+
+    def _fallback_delete_by_doc(self, document_id):
+        """Delete by document_id from fallback store."""
+        with self._fallback_lock:
+            store = self._fallback_store
+            keep = [i for i, m in enumerate(store["metadatas"]) if m.get("document_id") != document_id]
+            self._fallback_store = {
+                "ids": [store["ids"][i] for i in keep],
+                "embeddings": [store["embeddings"][i] for i in keep],
+                "documents": [store["documents"][i] for i in keep],
+                "metadatas": [store["metadatas"][i] for i in keep],
+            }
 
 
 class EmbeddingCache:

@@ -26,6 +26,8 @@ router = APIRouter(prefix="/api/documents", tags=["documents"])
 UPLOAD_DIR = Path("./uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
+MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
+
 # File extension to FileType mapping
 FILE_TYPE_MAP = {
     '.pdf': FileType.PDF,
@@ -84,6 +86,13 @@ async def upload_document(file: UploadFile = File(...)):
     doc_id = str(uuid.uuid4())
     file_path = UPLOAD_DIR / f"{doc_id}_{file.filename}"
 
+    # Check file size
+    file.file.seek(0, 2)  # Seek to end
+    size = file.file.tell()
+    file.file.seek(0)  # Reset position
+    if size > MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail=f"File too large: {size} bytes. Max: {MAX_FILE_SIZE} bytes")
+
     try:
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
@@ -125,7 +134,14 @@ async def upload_documents_batch(files: List[UploadFile] = File(...)):
             file_type = get_file_type(file.filename)
             doc_id = str(uuid.uuid4())
             file_path = UPLOAD_DIR / f"{doc_id}_{file.filename}"
-            
+
+            # Check file size
+            file.file.seek(0, 2)  # Seek to end
+            size = file.file.tell()
+            file.file.seek(0)  # Reset position
+            if size > MAX_FILE_SIZE:
+                raise HTTPException(status_code=413, detail=f"File too large: {size} bytes. Max: {MAX_FILE_SIZE} bytes")
+
             with open(file_path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
             

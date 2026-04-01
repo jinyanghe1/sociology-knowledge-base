@@ -11,10 +11,20 @@ import subprocess
 import time
 import zipfile
 from io import BytesIO
-from typing import List, Optional
+from typing import List, Optional, Union
 
 import requests
 import streamlit as st
+
+
+class FileWrapper:
+    """Wrapper for file bytes to provide file-like interface."""
+    def __init__(self, name: str, data: bytes):
+        self.name = name
+        self._data = data
+    
+    def getvalue(self) -> bytes:
+        return self._data
 
 # Page configuration
 st.set_page_config(
@@ -70,22 +80,25 @@ def fetch_documents() -> List[dict]:
         return []
 
 
-def upload_document(file) -> Optional[dict]:
+def upload_document(file: Union[object, 'FileWrapper']) -> Optional[dict]:
     """Upload single document to backend."""
     try:
-        files = {"file": (file.name, file.getvalue())}
+        file_name = file.name if hasattr(file, 'name') else str(file)
+        file_bytes = file.getvalue() if hasattr(file, 'getvalue') else b''
+        
+        files = {"file": (file_name, file_bytes)}
         response = requests.post(
             f"{API_BASE_URL}/api/documents", files=files, timeout=60
         )
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
-        st.error(f"上传失败 {file.name}: {e}")
+        st.error(f"上传失败 {getattr(file, 'name', str(file))}: {e}")
         return None
 
 
-def upload_folder(files: List) -> dict:
-    """Upload multiple files (folder upload)."""
+def process_batch_upload(files: List[Union[object, 'FileWrapper']]) -> dict:
+    """Process batch upload with progress tracking."""
     results = {"success": [], "failed": []}
     progress_bar = st.progress(0)
     status_text = st.empty()
@@ -94,13 +107,14 @@ def upload_folder(files: List) -> dict:
     for i, file in enumerate(files):
         progress = (i + 1) / total
         progress_bar.progress(progress)
-        status_text.text(f"上传中... ({i+1}/{total}) {file.name}")
+        file_name = getattr(file, 'name', str(file))
+        status_text.text(f"上传中... ({i+1}/{total}) {file_name}")
         
         result = upload_document(file)
         if result:
-            results["success"].append(file.name)
+            results["success"].append(file_name)
         else:
-            results["failed"].append(file.name)
+            results["failed"].append(file_name)
     
     progress_bar.empty()
     status_text.empty()
@@ -176,19 +190,20 @@ def render_sidebar():
                 key="batch_uploader",
             )
             if uploaded_files:
-                # Handle ZIP files
-                all_files = []
+                # Handle ZIP files and prepare file list
+                all_files: List[Union[object, FileWrapper]] = []
                 for file in uploaded_files:
                     if file.name.endswith('.zip'):
                         with zipfile.ZipFile(BytesIO(file.getvalue())) as z:
                             for zip_file in z.namelist():
                                 if zip_file.endswith(('.pdf', '.doc', '.docx', '.ppt', '.pptx', '.md', '.txt')):
-                                    all_files.append((zip_file, z.read(zip_file)))
+                                    # Wrap ZIP contents in FileWrapper for uniform interface
+                                    all_files.append(FileWrapper(zip_file, z.read(zip_file)))
                     else:
                         all_files.append(file)
                 
                 if all_files:
-                    results = upload_folder(all_files)
+                    results = process_batch_upload(all_files)
                     if results["success"]:
                         st.success(f"✅ 成功上传 {len(results['success'])} 个文件")
                     if results["failed"]:

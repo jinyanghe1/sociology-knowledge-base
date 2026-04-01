@@ -11,13 +11,13 @@ import uuid
 from contextlib import asynccontextmanager
 from typing import List
 
-import ollama
 from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from backend.api import documents, query
-from backend.core_logic.agentic_notes import get_agentic_notes_agent
+from backend.api.agents import router as agents_router
+from backend.core_logic.embedding import get_embedding
 from backend.core_logic.parser import DocumentParser
 from backend.core_logic.store import document_store, update_document_status
 from backend.models.schemas import DocumentStatus, FileType
@@ -61,6 +61,7 @@ app.add_middleware(
 # Include routers
 app.include_router(documents.router)
 app.include_router(query.router)
+app.include_router(agents_router)
 
 
 @app.get("/")
@@ -135,13 +136,7 @@ async def process_document(document_id: str):
             if cached_embedding:
                 embedding = cached_embedding
             else:
-                # Generate embedding
-                response = ollama.embeddings(
-                    model="nomic-embed-text", 
-                    prompt=content[:8000]  # Limit text length
-                )
-                embedding = response["embedding"]
-                # Cache it
+                embedding = get_embedding(content)
                 embedding_cache.put(content, "nomic-embed-text", embedding)
             
             embeddings.append(embedding)
@@ -206,11 +201,7 @@ async def batch_process_documents(document_ids: List[str]):
             # Generate embeddings
             embeddings = []
             for chunk in chunks:
-                response = ollama.embeddings(
-                    model="nomic-embed-text",
-                    prompt=chunk["content"][:8000]
-                )
-                embeddings.append(response["embedding"])
+                embeddings.append(get_embedding(chunk["content"]))
             
             # Index
             chroma_manager.add_documents(
@@ -233,34 +224,6 @@ async def batch_process_documents(document_ids: List[str]):
             results["failed"].append({"id": doc_id, "error": str(e)})
     
     return results
-
-
-@app.post("/api/agents/task")
-async def agent_task_endpoint(request: dict):
-    """Execute agent task (summarize/compare/outline)."""
-    try:
-        from backend.models.schemas import AgentTaskRequest, AgentTaskType
-        
-        task_type = AgentTaskType(request.get("task_type"))
-        document_ids = request.get("document_ids", [])
-        parameters = request.get("parameters", {})
-        
-        agent_request = AgentTaskRequest(
-            task_type=task_type,
-            document_ids=document_ids,
-            parameters=parameters
-        )
-        
-        agent = get_agentic_notes_agent(chroma_manager)
-        result = agent.execute(agent_request)
-        
-        return {
-            "task_id": result.task_id,
-            "result": result.result,
-            "metadata": result.metadata
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Agent task failed: {str(e)}")
 
 
 @app.post("/cache/clear")

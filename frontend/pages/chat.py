@@ -62,7 +62,7 @@ def show():
         with st.spinner("思考中..."):
             try:
                 response = requests.post(
-                    f"{API_BASE_URL}/query/",
+                    f"{API_BASE_URL}/api/query",
                     json={
                         "question": prompt,
                         "mode": mode,

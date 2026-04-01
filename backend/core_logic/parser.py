@@ -12,10 +12,10 @@ from typing import List, Optional
 
 class DocumentParser:
     """High-performance document parser with semantic chunking."""
-    
+
     # Optimized chunk parameters for large knowledge bases
-    CHUNK_SIZE = 800  # Increased for better context
-    CHUNK_OVERLAP = 100  # Increased overlap for continuity
+    CHUNK_SIZE = 1500  # Increased for better context (中文约 500-750 tokens)
+    CHUNK_OVERLAP = 200  # Increased overlap for continuity
     MIN_CHUNK_SIZE = 100  # Minimum meaningful chunk
 
     SUPPORTED_EXTENSIONS = {
@@ -42,6 +42,31 @@ class DocumentParser:
     def is_supported(cls, file_path: str) -> bool:
         """Check if file type is supported."""
         return cls.get_file_type(file_path) is not None
+
+    @classmethod
+    def _clean_text(cls, text: str) -> str:
+        """Clean extracted text for better embedding quality.
+
+        Removes control characters, normalizes whitespace, and filters
+        page number artifacts that degrade chunk quality.
+        """
+        # Remove control characters (0x00-0x1f except 0x09 tab, 0x0a newline, 0x0d return)
+        text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', text)
+
+        # Normalize multiple spaces/newlines to single
+        text = re.sub(r'[ \t]+', ' ', text)  # Multiple tabs/spaces -> single space
+        text = re.sub(r'\n{3,}', '\n\n', text)  # 3+ newlines -> 2 newlines
+
+        # Remove page number artifacts (e.g., "第 5 页", "Page 5", "- 5 -")
+        text = re.sub(r'第\s*\d+\s*页', '', text)
+        text = re.sub(r'Page\s+\d+', '', text, flags=re.IGNORECASE)
+        text = re.sub(r'-\s*\d+\s*-', '', text)
+
+        # Remove leading/trailing whitespace from lines
+        lines = [line.strip() for line in text.split('\n')]
+        text = '\n'.join(line for line in lines if line)
+
+        return text.strip()
 
     def parse(self, file_path: str, file_type: Optional[str] = None) -> List[dict]:
         """Parse document into chunks.
@@ -231,14 +256,18 @@ class DocumentParser:
 
     def _chunk_text(self, text: str, source: str, metadata: Optional[dict] = None) -> List[dict]:
         """Smart text chunking with semantic boundaries.
-        
+
         Optimized for retrieval efficiency:
         - Respects paragraph boundaries when possible
         - Maintains context with overlap
         - Filters out too-small chunks
+        - Cleans text before chunking
         """
         if not text or not text.strip():
             return []
+
+        # Clean text before chunking
+        text = self._clean_text(text)
         
         chunks = []
         chunk_index = 0

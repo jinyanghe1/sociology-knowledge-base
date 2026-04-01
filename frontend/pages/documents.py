@@ -15,8 +15,8 @@ def show():
         st.subheader("上传文档")
         uploaded_file = st.file_uploader(
             "选择文件",
-            type=["pdf", "md", "markdown", "txt"],
-            help="支持 PDF、Markdown 和文本文件"
+            type=["pdf", "doc", "docx", "ppt", "pptx", "md", "markdown", "txt"],
+            help="支持 PDF、Word、PPT、Markdown 和文本文件"
         )
 
         if uploaded_file:
@@ -24,7 +24,7 @@ def show():
                 with st.spinner("上传中..."):
                     files = {"file": (uploaded_file.name, uploaded_file.getvalue())}
                     response = requests.post(
-                        f"{API_BASE_URL}/documents/upload",
+                        f"{API_BASE_URL}/api/documents",
                         files=files
                     )
 
@@ -47,7 +47,7 @@ def show():
 
     with col2:
         st.subheader("文档列表")
-        response = requests.get(f"{API_BASE_URL}/documents/")
+        response = requests.get(f"{API_BASE_URL}/api/documents")
 
         if response.status_code == 200:
             documents = response.json()
@@ -76,7 +76,7 @@ def show():
                         with col_c:
                             if st.button("🗑️", key=f"del_{doc['id']}"):
                                 del_response = requests.delete(
-                                    f"{API_BASE_URL}/documents/{doc['id']}"
+                                    f"{API_BASE_URL}/api/documents/{doc['id']}"
                                 )
                                 if del_response.status_code == 200:
                                     st.success("已删除")

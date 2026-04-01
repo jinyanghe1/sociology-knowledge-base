@@ -5,7 +5,7 @@ from backend.models.schemas import AgentTaskRequest, AgentTaskResponse
 from backend.core_logic.agentic_notes import get_agentic_notes_agent
 from backend.vector_store.chroma_manager import ChromaManager
 
-router = APIRouter(prefix="/agents", tags=["agents"])
+router = APIRouter(prefix="/api/agents", tags=["agents"])
 
 chroma_manager = ChromaManager()
 

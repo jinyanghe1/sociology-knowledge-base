@@ -1,24 +1,31 @@
 """Agentic Notes - Multi-document Analysis Tasks.
 
-Implements LangGraph workflows for:
+Implements workflows for:
 - Summarize: Generate document summaries
 - Compare: Find contradictions across documents  
 - Outline: Generate structured outlines from sources
+
+Uses LangGraph when available, falls back to sequential execution.
 """
 
-from typing import Annotated, Any, Dict, List, Optional, TypedDict
+from typing import Any, Dict, List, Optional, TypedDict
 
-from langgraph.graph import END, StateGraph
-from langgraph.graph.message import add_messages
-
+from backend.core_logic.embedding import generate_text
 from backend.models.schemas import AgentTaskRequest, AgentTaskResponse, AgentTaskType
 from backend.vector_store.chroma_manager import ChromaManager
+
+try:
+    from langgraph.graph import END, StateGraph
+    from langgraph.graph.message import add_messages
+    from typing import Annotated
+    _LANGGRAPH_AVAILABLE = True
+except ImportError:
+    _LANGGRAPH_AVAILABLE = False
 
 
 class AgenticState(TypedDict):
     """State for Agentic Notes workflow."""
-
-    messages: Annotated[list, add_messages]
+    messages: list
     task_type: str
     document_ids: List[str]
     chunks: List[Dict[str, Any]]
@@ -38,8 +45,11 @@ class AgenticNotesAgent:
         self.chroma = chroma_manager or ChromaManager()
         self.workflow = self._build_workflow()
 
-    def _build_workflow(self) -> StateGraph:
-        """Build LangGraph workflow."""
+    def _build_workflow(self):
+        """Build LangGraph workflow or return None for fallback."""
+        if not _LANGGRAPH_AVAILABLE:
+            return None
+
         workflow = StateGraph(AgenticState)
 
         workflow.add_node("retrieve", self._retrieve_chunks)
@@ -67,8 +77,6 @@ class AgenticNotesAgent:
 
     def _retrieve_chunks(self, state: AgenticState) -> AgenticState:
         """Retrieve chunks for specified documents."""
-        import ollama
-
         document_ids = state["document_ids"]
         # Get all chunks for these documents
         all_chunks = []
@@ -101,8 +109,6 @@ class AgenticNotesAgent:
 
     def _summarize(self, state: AgenticState) -> AgenticState:
         """Generate summary."""
-        import ollama
-
         chunks_text = "\n\n".join([c.get("content", "") for c in state["chunks"]])
 
         prompt = f"""请对以下文档内容进行简洁总结，提取核心观点和主要论据:
@@ -114,20 +120,13 @@ class AgenticNotesAgent:
 2. 关键论据
 3. 结论"""
 
-        try:
-            response = ollama.generate(model="deepseek-r1:1.5b", prompt=prompt)
-            result = response["response"]
-        except Exception as e:
-            result = f"生成总结时出错: {str(e)}"
-
+        result = generate_text(prompt)
         state["result"] = result
         state["messages"].append({"role": "assistant", "content": result})
         return state
 
     def _compare(self, state: AgenticState) -> AgenticState:
         """Compare documents and identify contradictions."""
-        import ollama
-
         # Group chunks by document
         doc_chunks = {}
         for chunk in state["chunks"]:
@@ -136,7 +135,6 @@ class AgenticNotesAgent:
                 doc_chunks[doc_id] = []
             doc_chunks[doc_id].append(chunk.get("content", ""))
 
-        # Format for comparison
         comparison_text = ""
         for i, (doc_id, contents) in enumerate(doc_chunks.items(), 1):
             doc_text = "\n".join(contents)
@@ -151,12 +149,7 @@ class AgenticNotesAgent:
 
 请用中文输出对比分析。"""
 
-        try:
-            response = ollama.generate(model="deepseek-r1:1.5b", prompt=prompt)
-            result = response["response"]
-        except Exception as e:
-            result = f"生成对比时出错: {str(e)}"
-
+        result = generate_text(prompt)
         state["result"] = result
         state["metadata"]["contradictions"] = []
         state["messages"].append({"role": "assistant", "content": result})
@@ -164,8 +157,6 @@ class AgenticNotesAgent:
 
     def _outline(self, state: AgenticState) -> AgenticState:
         """Generate structured outline."""
-        import ollama
-
         chunks_text = "\n\n".join([c.get("content", "") for c in state["chunks"]])
         topic = state.get("metadata", {}).get("topic", "研究主题")
 
@@ -178,28 +169,36 @@ class AgenticNotesAgent:
 2. 二级标题 (子章节)
 3. 每个章节的核心要点"""
 
-        try:
-            response = ollama.generate(model="deepseek-r1:1.5b", prompt=prompt)
-            result = response["response"]
-        except Exception as e:
-            result = f"生成大纲时出错: {str(e)}"
-
+        result = generate_text(prompt)
         state["result"] = result
         state["messages"].append({"role": "assistant", "content": result})
         return state
 
     def execute(self, request: AgentTaskRequest) -> AgentTaskResponse:
-        """Execute agent task."""
-        initial_state = AgenticState(
-            messages=[],
-            task_type=request.task_type.value,
-            document_ids=request.document_ids,
-            chunks=[],
-            result=None,
-            metadata=request.parameters,
-        )
+        """Execute agent task (LangGraph or sequential fallback)."""
+        initial_state: AgenticState = {
+            "messages": [],
+            "task_type": request.task_type.value,
+            "document_ids": request.document_ids,
+            "chunks": [],
+            "result": None,
+            "metadata": dict(request.parameters),
+        }
 
-        final_state = self.workflow.invoke(initial_state)
+        if self.workflow is not None:
+            final_state = self.workflow.invoke(initial_state)
+        else:
+            # Sequential fallback
+            state = self._retrieve_chunks(initial_state)
+            state = self._analyze(state)
+            task_type = state["task_type"]
+            if task_type == AgentTaskType.SUMMARIZE.value:
+                state = self._summarize(state)
+            elif task_type == AgentTaskType.COMPARE.value:
+                state = self._compare(state)
+            elif task_type == AgentTaskType.OUTLINE.value:
+                state = self._outline(state)
+            final_state = state
 
         return AgentTaskResponse(
             result=final_state.get("result", "No result generated"),

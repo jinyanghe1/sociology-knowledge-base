@@ -8,37 +8,12 @@ from backend.models.schemas import (
     Source,
     QueryMode,
 )
+from backend.core_logic.embedding import get_embedding, generate_answer
 from backend.vector_store.chroma_manager import ChromaManager
 
 router = APIRouter(prefix="/api/query", tags=["query"])
 
 chroma_manager = ChromaManager()
-
-
-def get_embedding(text: str) -> list[float]:
-    import ollama
-    response = ollama.embeddings(model="nomic-embed-text", prompt=text)
-    return response["embedding"]
-
-
-def generate_answer(question: str, context_chunks: list[str]) -> str:
-    import ollama
-
-    context = "\n\n".join(context_chunks)
-    prompt = f"""Based on the following context, answer the question.
-
-Context:
-{context}
-
-Question: {question}
-
-Answer:"""
-
-    response = ollama.generate(
-        model="deepseek-r1:1.5b",
-        prompt=prompt
-    )
-    return response["response"]
 
 
 @router.post("", response_model=QueryResponse)
@@ -54,8 +29,6 @@ async def query_documents(request: QueryRequest):
     if request.document_ids:
         if len(request.document_ids) == 1:
             where_filter = {"document_id": request.document_ids[0]}
-        # For multiple document_ids, ChromaDB doesn't support IN clause directly
-        # We'll query with first doc and filter after
 
     try:
         results = chroma_manager.query(
@@ -72,7 +45,6 @@ async def query_documents(request: QueryRequest):
         for i, chunk_id in enumerate(results["ids"][0]):
             doc_id = results["metadatas"][0][i].get("document_id", "") if results.get("metadatas") else ""
 
-            # Filter by document_ids if specified
             if request.document_ids and doc_id not in request.document_ids:
                 continue
 

@@ -1,27 +1,29 @@
 # backend/core_logic/agent.py
-import ollama
-from typing import TypedDict, Annotated, Sequence
-from langgraph.graph import StateGraph, END
-from langchain_core.messages import HumanMessage, AIMessage
+"""RAG Agent workflow with LangGraph (optional) fallback."""
 
+from typing import TypedDict, Sequence, Optional
+
+from backend.core_logic.embedding import get_embedding, generate_text
 from backend.vector_store.chroma_manager import ChromaManager
-from backend.models.schemas import SourceChunk
+from backend.models.schemas import Source
+
+try:
+    from langgraph.graph import StateGraph, END
+    from langchain_core.messages import HumanMessage, AIMessage
+    _LANGGRAPH_AVAILABLE = True
+except ImportError:
+    _LANGGRAPH_AVAILABLE = False
 
 
 class AgentState(TypedDict):
-    messages: Sequence[HumanMessage | AIMessage]
+    messages: list
     question: str
-    context: list[SourceChunk]
+    context: list
     answer: str
-    reasoning_steps: list[str]
+    reasoning_steps: list
 
 
 chroma_manager = ChromaManager()
-
-
-def get_embedding(text: str) -> list[float]:
-    response = ollama.embeddings(model="nomic-embed-text", prompt=text)
-    return response["embedding"]
 
 
 def retrieve_context(state: AgentState) -> AgentState:
@@ -36,7 +38,7 @@ def retrieve_context(state: AgentState) -> AgentState:
     sources = []
     if results["ids"] and len(results["ids"]) > 0:
         for i, chunk_id in enumerate(results["ids"][0]):
-            sources.append(SourceChunk(
+            sources.append(Source(
                 chunk_id=chunk_id,
                 document_id=results["metadatas"][0][i].get("document_id", ""),
                 content=results["documents"][0][i],
@@ -61,12 +63,7 @@ Determine:
 
 Respond with either "SIMPLE_RAG" or "MULTI_STEP" followed by your reasoning."""
 
-    response = ollama.generate(
-        model="deepseek-r1:1.5b",
-        prompt=prompt
-    )
-    analysis = response["response"]
-
+    analysis = generate_text(prompt)
     state["reasoning_steps"].append(f"Task analysis: {analysis[:100]}...")
     return state
 
@@ -89,12 +86,7 @@ Question: {question}
 
 Provide a clear, direct answer:"""
 
-    response = ollama.generate(
-        model="deepseek-r1:1.5b",
-        prompt=prompt
-    )
-
-    state["answer"] = response["response"]
+    state["answer"] = generate_text(prompt)
     state["reasoning_steps"].append("Generated simple RAG response")
     return state
 
@@ -108,8 +100,7 @@ def generate_structured_response(state: AgentState) -> AgentState:
         return state
 
     context = "\n\n".join([chunk.content for chunk in context_chunks])
-
-    outline_prompt = f"""Based on the following context, create a structured outline or analysis.
+    prompt = f"""Based on the following context, create a structured outline or analysis.
 
 Context:
 {context}
@@ -118,12 +109,7 @@ Question: {question}
 
 Provide a well-structured response with clear sections and reasoning:"""
 
-    response = ollama.generate(
-        model="deepseek-r1:1.5b",
-        prompt=outline_prompt
-    )
-
-    state["answer"] = response["response"]
+    state["answer"] = generate_text(prompt)
     state["reasoning_steps"].append("Generated structured multi-step response")
     return state
 
@@ -135,7 +121,8 @@ def should_use_structured(state: AgentState) -> str:
     return "simple"
 
 
-def create_agentic_workflow():
+def _create_langgraph_workflow():
+    """Build the LangGraph workflow (only when langgraph is available)."""
     workflow = StateGraph(AgentState)
 
     workflow.add_node("retrieve", retrieve_context)
@@ -161,22 +148,51 @@ def create_agentic_workflow():
     return workflow.compile()
 
 
-agentic_workflow = create_agentic_workflow()
-
-
-def run_agentic_query(question: str) -> dict:
-    initial_state = {
-        "messages": [HumanMessage(content=question)],
+def _run_sequential_fallback(question: str) -> dict:
+    """Sequential fallback when LangGraph is unavailable."""
+    state: AgentState = {
+        "messages": [],
         "question": question,
         "context": [],
         "answer": "",
         "reasoning_steps": []
     }
-
-    final_state = agentic_workflow.invoke(initial_state)
-
+    state = retrieve_context(state)
+    state = analyze_task(state)
+    if should_use_structured(state) == "structured":
+        state = generate_structured_response(state)
+    else:
+        state = generate_simple_response(state)
     return {
-        "answer": final_state["answer"],
-        "sources": final_state["context"],
-        "reasoning_steps": final_state["reasoning_steps"]
+        "answer": state["answer"],
+        "sources": state["context"],
+        "reasoning_steps": state["reasoning_steps"]
     }
+
+
+# Build workflow lazily
+_agentic_workflow = None
+
+
+def run_agentic_query(question: str) -> dict:
+    global _agentic_workflow
+
+    if _LANGGRAPH_AVAILABLE:
+        if _agentic_workflow is None:
+            _agentic_workflow = _create_langgraph_workflow()
+
+        initial_state = {
+            "messages": [],
+            "question": question,
+            "context": [],
+            "answer": "",
+            "reasoning_steps": []
+        }
+        final_state = _agentic_workflow.invoke(initial_state)
+        return {
+            "answer": final_state["answer"],
+            "sources": final_state["context"],
+            "reasoning_steps": final_state["reasoning_steps"]
+        }
+
+    return _run_sequential_fallback(question)

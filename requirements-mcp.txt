@@ -1,0 +1,24 @@
+# MCP Server - 精简依赖
+# 安装: pip install -r requirements-mcp.txt
+
+# MCP Server
+mcp>=1.0.0
+
+# 向量数据库
+chromadb>=0.4.22
+
+# 文档解析
+pdfplumber>=0.10.0
+python-docx>=1.1.0
+python-pptx>=0.6.23
+beautifulsoup4>=4.12.0
+lxml>=5.1.0
+
+# Embedding (可选 - 无 Ollama 时使用 hash fallback)
+# ollama>=0.1.7
+
+# 数值计算
+numpy>=1.24.0
+
+# 服务器
+uvicorn>=0.27.0

@@ -1,35 +1,50 @@
-# TODO - AI 知识库全栈开发
+# TODO - AI 知识库 MCP 架构
 
-## Phase 1: 基础架构 + 文档解析
-- [x] 创建项目结构
-- [x] 创建 `.agentstalk/` 目录及通讯文件
-- [x] 创建 `requirements.txt`
-- [x] 创建 `backend/models/schemas.py`（Pydantic 模型）
-- [x] 实现 `backend/vector_store/chroma_manager.py`
-- [x] 实现 `backend/core_logic/parser.py`
+## 架构路线: MCP Server (替代 FastAPI + Streamlit)
 
-## Phase 2: FastAPI 后端
-- [x] 实现 `backend/api/documents.py`
-- [x] 实现 `backend/api/query.py`
-- [x] 实现 `backend/main.py`
+```
+用户提问 → MCP Server (ChromaDB RAG) → Claude Desktop/kimi 推理 → 回答
+```
 
-## Phase 3: LangGraph Agent
-- [x] 实现 `backend/core_logic/agent.py`
+## Phase M1: MCP Server 核心 ✅ 已完成
+- [x] 创建 `mcp_server/` 目录结构
+- [x] 安装 MCP Python SDK
+- [x] 实现 `rag_search(query, top_k)` tool
+- [x] 实现 `index_document(path)` tool
+- [x] 实现 `index_folder(path, recursive)` tool (批量索引)
+- [x] 实现 `list_documents()` tool
+- [x] 实现 `get_document_info(id)` tool
+- [x] 实现 `get_document_chunks(id)` tool
+- [x] 实现 `delete_document(id)` tool
+- [x] 实现 `get_stats()` tool
+- [x] 共 8 个 MCP tools 注册成功
 
-## Phase 4: Streamlit 前端
-- [x] 实现 `frontend/app.py`
-- [x] 实现 `frontend/pages/documents.py`
-- [x] 实现 `frontend/pages/chat.py`
+## Phase M2: 持久化 & 文档管理 ✅ 已完成
+- [x] 复用 `backend/core_logic/parser.py` (PDF/DOCX/DOC/PPTX/PPT/MD/TXT/HTML)
+- [x] 复用 `backend/vector_store/chroma_manager.py` (ChromaDB + fallback)
+- [x] 复用 `backend/core_logic/embedding.py` (Ollama + hash fallback)
+- [x] 文档元数据持久化到 JSON (`mcp_data/documents.json`)
+- [x] 数据统一存储在 `mcp_data/` 目录
 
-## 功能增强 (已完成)
-- [x] 一键启动/停止脚本 (start.sh / stop.sh / status.sh)
-- [x] 前端一键 Shutdown 按钮 (保存→关页面→停止服务)
-- [x] 文件夹批量上传支持
-- [x] 扩展文件类型支持 (PPT, DOC, DOCX)
-- [x] 检索性能优化 (索引/缓存/并发)
+## Phase M3: Claude Desktop 配置 ✅ 已完成
+- [x] 编写 `CLAUDE_DESKTOP_CONFIG.md` (含 8 个工具说明)
+- [x] E2E 测试通过: index → search → info → chunks → delete
+- [x] index_folder 批量索引测试通过
+- [x] JSON 持久化测试通过 (重启不丢失)
+- [ ] 用户 Claude Desktop 实际接入测试 (待用户操作)
 
-## Verification
-- [ ] 启动后端测试
-- [ ] 启动前端测试
-- [ ] RAG 召回测试
-- [ ] Agentic Notes 思考流测试
+## 新增文件
+- `mcp_server/server.py` - MCP Server 主程序
+- `requirements-mcp.txt` - MCP 方案精简依赖
+- `CLAUDE_DESKTOP_CONFIG.md` - Claude Desktop 配置指南
+
+## 启动方式
+```bash
+cd /Users/hejinyang/Desktop/社会学考研资料
+pip install -r requirements-mcp.txt
+python mcp_server/server.py
+```
+
+## 旧架构 (FastAPI 方案 - 可废弃)
+- backend/, frontend/ 暂时保留
+- 后续可删除
