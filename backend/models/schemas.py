@@ -24,8 +24,13 @@ class FileType(str, Enum):
     """Supported file types."""
 
     PDF = "pdf"
+    DOC = "doc"
+    DOCX = "docx"
+    PPT = "ppt"
+    PPTX = "pptx"
     MARKDOWN = "markdown"
     TEXT = "text"
+    HTML = "html"
 
 
 class Document(BaseModel):

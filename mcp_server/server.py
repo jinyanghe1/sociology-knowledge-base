@@ -29,7 +29,7 @@ from backend.core_logic.embedding import get_embedding
 BASE_DIR = Path(__file__).parent.parent
 DATA_DIR = BASE_DIR / "mcp_data"
 UPLOADS_DIR = DATA_DIR / "uploads"
-CHROMA_DIR = DATA_DIR / "chroma"
+CHROMA_DIR = BASE_DIR / "data" / "chroma"
 META_FILE = DATA_DIR / "documents.json"
 
 for d in (DATA_DIR, UPLOADS_DIR, CHROMA_DIR):
@@ -201,6 +201,7 @@ def rag_search(query: str, top_k: int = 5, workspace: str = None) -> list[dict]:
         if results["ids"] and results["ids"][0]:
             for i, cid in enumerate(results["ids"][0]):
                 meta = results["metadatas"][0][i] if results.get("metadatas") else {}
+                distance = results["distances"][0][i] if results.get("distances") else 0.0
                 hits.append({
                     "chunk_id": cid,
                     "content": results["documents"][0][i],
@@ -209,7 +210,9 @@ def rag_search(query: str, top_k: int = 5, workspace: str = None) -> list[dict]:
                     "source": meta.get("source", ""),
                     "workspace": meta.get("workspace", "default"),
                     "filename": meta.get("filename", ""),
-                    "score": results["distances"][0][i] if results.get("distances") else 0.0,
+                    "file_type": meta.get("file_type", ""),
+                    "score": round(max(0.0, 1.0 - distance), 4),
+                    "distance": round(distance, 4),
                 })
         return hits
     except Exception as e:

@@ -8,7 +8,7 @@ from backend.models.schemas import (
     Source,
     QueryMode,
 )
-from backend.core_logic.embedding import get_embedding, generate_answer
+from backend.core_logic.embedding import get_embedding
 from backend.vector_store.chroma_manager import ChromaManager
 
 router = APIRouter(prefix="/api/query", tags=["query"])
@@ -66,11 +66,10 @@ async def query_documents(request: QueryRequest):
             sources=[]
         )
 
-    answer = generate_answer(request.question, context_chunks)
-
+    # Return chunks directly — Agent handles RAG reasoning
     return QueryResponse(
         question=request.question,
-        answer=answer,
+        answer=f"Found {len(sources)} relevant chunks. Use the sources below for RAG-enhanced reasoning.",
         sources=sources
     )
 

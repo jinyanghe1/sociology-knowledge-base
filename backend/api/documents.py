@@ -31,14 +31,16 @@ MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
 # File extension to FileType mapping
 FILE_TYPE_MAP = {
     '.pdf': FileType.PDF,
-    '.doc': FileType.TEXT,  # Legacy DOC treated as text after conversion
-    '.docx': FileType.TEXT,
-    '.ppt': FileType.TEXT,
-    '.pptx': FileType.TEXT,
+    '.doc': FileType.DOC,
+    '.docx': FileType.DOCX,
+    '.ppt': FileType.PPT,
+    '.pptx': FileType.PPTX,
     '.md': FileType.MARKDOWN,
     '.markdown': FileType.MARKDOWN,
     '.txt': FileType.TEXT,
     '.rst': FileType.TEXT,
+    '.html': FileType.HTML,
+    '.htm': FileType.HTML,
 }
 
 

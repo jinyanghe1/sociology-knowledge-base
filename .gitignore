@@ -75,10 +75,13 @@ Thumbs.db
 
 # Project specific
 uploads/
-data/chroma/
+data/
+mcp_data/
 chroma_data/
 logs/
 *.log
+FILES/
+.agentstalk/
 
 # Baidu Yun sync temp files
 *.baiduyun.uploading.cfg

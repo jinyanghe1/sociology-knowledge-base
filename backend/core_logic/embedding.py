@@ -1,6 +1,6 @@
 """Embedding utility with Ollama + deterministic fallback.
 
-When Ollama is available, uses nomic-embed-text for real embeddings.
+When Ollama is available, uses bge-m3 for real embeddings.
 When unavailable, falls back to deterministic hash-based embeddings
 so the app can still start and accept documents.
 """
@@ -13,8 +13,9 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# Embedding dimension (nomic-embed-text default)
-EMBED_DIM = 768
+# Embedding dimension (bge-m3: 1024维, 多语言/中文优化, 8192 token context)
+EMBED_DIM = 1024
+DEFAULT_EMBED_MODEL = "bge-m3"
 
 _ollama_available: Optional[bool] = None
 
@@ -35,7 +36,7 @@ def _check_ollama() -> bool:
     return _ollama_available
 
 
-def get_embedding(text: str, model: str = "nomic-embed-text") -> List[float]:
+def get_embedding(text: str, model: str = DEFAULT_EMBED_MODEL) -> List[float]:
     """Generate embedding for text.
 
     Uses Ollama when available, otherwise deterministic hash vector.
@@ -49,7 +50,11 @@ def get_embedding(text: str, model: str = "nomic-embed-text") -> List[float]:
 
 def generate_answer(question: str, context_chunks: List[str],
                     model: str = "deepseek-r1:1.5b") -> str:
-    """Generate an LLM answer. Falls back to echo-context when Ollama is absent."""
+    """[Deprecated] Generate an LLM answer. Use Agent-side RAG instead.
+    
+    Kept for backward compatibility. The recommended workflow is:
+    Agent → MCP rag_search → Top-K Chunks → Agent (RAG reasoning) → User
+    """
     if _check_ollama():
         import ollama
         context = "\n\n".join(context_chunks)
@@ -71,7 +76,7 @@ def generate_answer(question: str, context_chunks: List[str],
 
 
 def generate_text(prompt: str, model: str = "deepseek-r1:1.5b") -> str:
-    """Generate text from prompt. Falls back to echo when Ollama is absent."""
+    """[Deprecated] Generate text from prompt. Use Agent-side generation instead."""
     if _check_ollama():
         import ollama
         response = ollama.generate(model=model, prompt=prompt)

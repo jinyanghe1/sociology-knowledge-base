@@ -13,10 +13,10 @@ from typing import List, Optional
 class DocumentParser:
     """High-performance document parser with semantic chunking."""
 
-    # Optimized chunk parameters for large knowledge bases
-    CHUNK_SIZE = 1500  # Increased for better context (中文约 500-750 tokens)
-    CHUNK_OVERLAP = 200  # Increased overlap for continuity
-    MIN_CHUNK_SIZE = 100  # Minimum meaningful chunk
+    # Optimized for sociology texts: larger chunks preserve complete arguments
+    CHUNK_SIZE = 3000  # ~1000 中文 tokens, 保留完整论述
+    CHUNK_OVERLAP = 300  # Increased overlap for continuity
+    MIN_CHUNK_SIZE = 200  # Minimum meaningful chunk
 
     SUPPORTED_EXTENSIONS = {
         '.pdf': 'pdf',

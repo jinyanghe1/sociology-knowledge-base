@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse
 
 from backend.api import documents, query
 from backend.api.agents import router as agents_router
-from backend.core_logic.embedding import get_embedding
+from backend.core_logic.embedding import get_embedding, DEFAULT_EMBED_MODEL
 from backend.core_logic.parser import DocumentParser
 from backend.core_logic.store import document_store, update_document_status
 from backend.models.schemas import DocumentStatus, FileType
@@ -132,12 +132,12 @@ async def process_document(document_id: str):
             cache_key = f"{hash(content)}"
             
             # Check cache
-            cached_embedding = embedding_cache.get(content, "nomic-embed-text")
+            cached_embedding = embedding_cache.get(content, DEFAULT_EMBED_MODEL)
             if cached_embedding:
                 embedding = cached_embedding
             else:
                 embedding = get_embedding(content)
-                embedding_cache.put(content, "nomic-embed-text", embedding)
+                embedding_cache.put(content, DEFAULT_EMBED_MODEL, embedding)
             
             embeddings.append(embedding)
             contents.append(content)
